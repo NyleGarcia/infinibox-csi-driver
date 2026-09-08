@@ -65,6 +65,8 @@ type IboxpromoteList struct {
 	Items           []Iboxpromote `json:"items"`
 }
 
+/**
 func init() {
 	SchemeBuilder.Register(&Iboxpromote{}, &IboxpromoteList{})
 }
+*/

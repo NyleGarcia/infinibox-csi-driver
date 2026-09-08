@@ -81,6 +81,8 @@ type IboxreplicaList struct {
 	Items           []Iboxreplica `json:"items"`
 }
 
+/**
 func init() {
 	SchemeBuilder.Register(&Iboxreplica{}, &IboxreplicaList{})
 }
+*/

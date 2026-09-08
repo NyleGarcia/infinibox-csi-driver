@@ -74,6 +74,8 @@ type IboxcgList struct {
 	Items           []Iboxcg `json:"items"`
 }
 
+/**
 func init() {
 	SchemeBuilder.Register(&Iboxcg{}, &IboxcgList{})
 }
+*/
