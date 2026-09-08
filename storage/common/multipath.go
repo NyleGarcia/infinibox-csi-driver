@@ -556,7 +556,7 @@ func DetachMpathDevice(mpathDevice string, protocol string) error {
 		mpath = mpathDevice
 		devices, err = findDevicesForMpath(mpath)
 		if err != nil {
-			return common.Errorf("%w", mpath, err)
+			return common.Errorf("mpath %s error %w", mpath, err)
 		}
 	}
 
