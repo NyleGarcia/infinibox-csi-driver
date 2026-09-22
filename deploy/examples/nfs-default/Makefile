@@ -3,7 +3,7 @@ export
 
 include ../../../Makefile-help
 
-##@ iscsi Complete Example
+##@ nfs default storageclass used by OSV installations
 .PHONY: setup
 setup:  devEnv teardown 
 	@echo -e $(_begin)
