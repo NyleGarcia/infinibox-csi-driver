@@ -190,3 +190,86 @@ tests:
       - equal:
           path: metadata.labels.version
           value: "123"
+
+  - it: quotes bool, int and float commonLabels values on every resource
+    templates:
+      - attacher-rbac.yaml
+      - driver.yaml
+      - nodeserverroles.yaml
+      - protocol-secret.yaml
+      - secret-infinibox.yaml
+    set:
+      commonLabels:
+        enabled: true
+        disabled: false
+        count: 123
+        ratio: 1.5
+    asserts:
+      - isSubset:
+          path: metadata.labels
+          content:
+            enabled: "true"
+            disabled: "false"
+            count: "123"
+            ratio: "1.5"
+
+  - it: drops null label values on every resource and pod
+    templates:
+      - attacher-rbac.yaml
+      - controllerserver.yaml
+      - nodeserver.yaml
+      - protocol-secret.yaml
+      - secret-infinibox.yaml
+    set:
+      commonLabels:
+        team: storage
+        removed: null
+    asserts:
+      - isSubset:
+          path: metadata.labels
+          content:
+            team: storage
+      - notExists:
+          path: metadata.labels.removed
+
+  - it: quotes bool and int podLabels values on controller pods
+    template: controllerserver.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    set:
+      commonLabels:
+        enabled: true
+      controllerserver:
+        podLabels:
+          count: 7
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app: t-driver
+            enabled: "true"
+            count: "7"
+      - equal:
+          path: metadata.labels
+          value:
+            enabled: "true"
+
+  - it: quotes bool and int podLabels values on node pods
+    template: nodeserver.yaml
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    set:
+      commonLabels:
+        enabled: true
+      nodeserver:
+        podLabels:
+          count: 7
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app: t-node
+            enabled: "true"
+            count: "7"
