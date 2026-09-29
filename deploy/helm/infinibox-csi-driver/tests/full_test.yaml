@@ -1,0 +1,172 @@
+suite: full example values
+values:
+  - values/full.yaml
+release:
+  name: t
+  namespace: ibox
+tests:
+  - it: labels every rendered resource
+    templates:
+      - attacher-rbac.yaml
+      - controllerserver.yaml
+      - controllerserverroles.yaml
+      - csiaddons-rbac.yaml
+      - driver.yaml
+      - iboxcg-controller-rbac.yaml
+      - iboxpromote-controller-rbac.yaml
+      - iboxreplica-controller-rbac.yaml
+      - nodeserver.yaml
+      - nodeserverroles.yaml
+      - protocol-secret.yaml
+      - provisioner-rbac.yaml
+      - resizer-rbac.yaml
+      - secret-infinibox.yaml
+      - volumegroup-rbac.yaml
+    asserts:
+      - isSubset:
+          path: metadata.labels
+          content:
+            team: storage
+            env: prod
+
+  - it: renders the complete controller pod spec
+    template: controllerserver.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: metadata.labels
+          value:
+            team: storage
+            env: prod
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app: t-driver
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app: t-driver
+            team: storage
+            env: prod
+            tier: controller
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            node-role.kubernetes.io/infra: ""
+      - equal:
+          path: spec.template.spec.affinity
+          value:
+            nodeAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 50
+                  preference:
+                    matchExpressions:
+                      - key: example.com/zone
+                        operator: In
+                        values: ["a"]
+      - equal:
+          path: spec.template.spec.tolerations
+          value:
+            - key: node-role.kubernetes.io/infra
+              operator: Exists
+              effect: NoSchedule
+
+  - it: renders the complete node pod spec
+    template: nodeserver.yaml
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    asserts:
+      - equal:
+          path: metadata.labels
+          value:
+            team: storage
+            env: prod
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app: t-node
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app: t-node
+            team: storage
+            env: prod
+            tier: node
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            kubernetes.io/os: linux
+      - equal:
+          path: spec.template.spec.affinity
+          value:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: example.com/storage
+                        operator: In
+                        values: ["true"]
+      - equal:
+          path: spec.template.spec.tolerations
+          value:
+            - key: example.com/storage
+              operator: Equal
+              value: "true"
+              effect: NoSchedule
+            - operator: Exists
+              effect: NoExecute
+
+  - it: labels the controllerserver e2e Service without changing its selector
+    template: controllerserver.yaml
+    documentSelector:
+      path: kind
+      value: Service
+    asserts:
+      - equal:
+          path: metadata.labels
+          value:
+            team: storage
+            env: prod
+      - equal:
+          path: spec.selector
+          value:
+            app: t-driver
+
+  - it: labels the nodeserver e2e Service without changing its selector
+    template: nodeserver.yaml
+    documentSelector:
+      path: kind
+      value: Service
+    asserts:
+      - equal:
+          path: metadata.labels
+          value:
+            team: storage
+            env: prod
+      - equal:
+          path: spec.selector
+          value:
+            app: t-node
+
+  - it: renders the full chart unchanged (snapshot)
+    templates:
+      - attacher-rbac.yaml
+      - controllerserver.yaml
+      - controllerserverroles.yaml
+      - csiaddons-rbac.yaml
+      - driver.yaml
+      - iboxcg-controller-rbac.yaml
+      - iboxpromote-controller-rbac.yaml
+      - iboxreplica-controller-rbac.yaml
+      - nodeserver.yaml
+      - nodeserverroles.yaml
+      - protocol-secret.yaml
+      - provisioner-rbac.yaml
+      - resizer-rbac.yaml
+      - secret-infinibox.yaml
+      - volumegroup-rbac.yaml
+    asserts:
+      - matchSnapshot: {}

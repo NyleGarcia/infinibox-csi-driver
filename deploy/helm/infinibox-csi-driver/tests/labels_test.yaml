@@ -129,3 +129,64 @@ tests:
       - equal:
           path: spec.template.metadata.labels.tier
           value: node
+
+  - it: labels every credential secret
+    template: secret-infinibox.yaml
+    set:
+      commonLabels:
+        team: storage
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.labels
+          value:
+            app: infinidat-csi-driver
+            team: storage
+
+  - it: podLabels alone work without commonLabels
+    template: controllerserver.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    set:
+      controllerserver:
+        podLabels:
+          tier: controller
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app: t-driver
+            tier: controller
+      - notExists:
+          path: metadata.labels
+
+  - it: controller podLabels do not leak into node pods
+    template: nodeserver.yaml
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    set:
+      controllerserver:
+        podLabels:
+          tier: controller
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app: t-node
+
+  - it: renders string label values quoted
+    template: driver.yaml
+    set:
+      commonLabels:
+        enabled: "true"
+        version: "123"
+    asserts:
+      - equal:
+          path: metadata.labels.enabled
+          value: "true"
+      - equal:
+          path: metadata.labels.version
+          value: "123"

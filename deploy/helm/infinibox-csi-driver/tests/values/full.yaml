@@ -1,0 +1,45 @@
+# every new label/scheduling value set at once; used by full_test.yaml
+leaderElection: "true"
+installCSIAddons: true
+e2etesting: "true"
+commonLabels:
+  team: storage
+  env: prod
+nodeserver:
+  podLabels:
+    tier: node
+  nodeSelector:
+    kubernetes.io/os: linux
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: example.com/storage
+                operator: In
+                values: ["true"]
+  tolerations:
+    - key: example.com/storage
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+    - operator: Exists
+      effect: NoExecute
+controllerserver:
+  podLabels:
+    tier: controller
+  nodeSelector:
+    node-role.kubernetes.io/infra: ""
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 50
+          preference:
+            matchExpressions:
+              - key: example.com/zone
+                operator: In
+                values: ["a"]
+  tolerations:
+    - key: node-role.kubernetes.io/infra
+      operator: Exists
+      effect: NoSchedule

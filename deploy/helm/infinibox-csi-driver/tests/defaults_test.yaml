@@ -1,0 +1,51 @@
+# Default values must render exactly what the chart rendered before the
+# label/scheduling options were added. The snapshot was generated from a
+# chart whose default output was verified byte-identical to develop.
+suite: defaults regression
+templates:
+  - attacher-rbac.yaml
+  - controllerserver.yaml
+  - controllerserverroles.yaml
+  - csiaddons-rbac.yaml
+  - driver.yaml
+  - iboxcg-controller-rbac.yaml
+  - iboxpromote-controller-rbac.yaml
+  - iboxreplica-controller-rbac.yaml
+  - nodeserver.yaml
+  - nodeserverroles.yaml
+  - protocol-secret.yaml
+  - provisioner-rbac.yaml
+  - resizer-rbac.yaml
+  - secret-infinibox.yaml
+  - volumegroup-rbac.yaml
+release:
+  name: t
+  namespace: ibox
+tests:
+  - it: default values render unchanged (snapshot)
+    asserts:
+      - matchSnapshot: {}
+
+  - it: leaderElection + CSIAddons + e2etesting render unchanged (snapshot)
+    set:
+      leaderElection: "true"
+      installCSIAddons: true
+      e2etesting: "true"
+    asserts:
+      - matchSnapshot: {}
+
+  - it: empty label and scheduling values render the same as defaults (snapshot)
+    set:
+      commonLabels: {}
+      nodeserver:
+        podLabels: {}
+        nodeSelector: {}
+        affinity: {}
+        tolerations: []
+      controllerserver:
+        podLabels: {}
+        nodeSelector: {}
+        affinity: {}
+        tolerations: []
+    asserts:
+      - matchSnapshot: {}

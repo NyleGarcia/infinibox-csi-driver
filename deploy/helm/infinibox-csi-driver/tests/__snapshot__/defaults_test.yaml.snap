@@ -1,0 +1,4244 @@
+default values render unchanged (snapshot):
+  1: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-external-attacher-runner
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumes
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - csinodes
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments/status
+        verbs:
+          - patch
+  2: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-csi-attacher-role
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-external-attacher-runner
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  3: |
+    apiVersion: apps/v1
+    kind: StatefulSet
+    metadata:
+      name: t-driver
+      namespace: ibox
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: t-driver
+      serviceName: t-driver
+      template:
+        metadata:
+          labels:
+            app: t-driver
+        spec:
+          containers:
+            - args:
+                - --csi-address=$(ADDRESS)
+                - --leader-election-namespace=$(POD_NAMESPACE)
+                - --leader-election=false
+                - --v=5
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: registry.k8s.io/sig-storage/csi-attacher:v4.10.0
+              imagePullPolicy: IfNotPresent
+              name: attacher
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - args:
+                - --csi-address=$(ADDRESS)
+                - --leader-election-namespace=$(POD_NAMESPACE)
+                - --leader-election=false
+                - --volume-name-prefix=ibox
+                - --volume-name-uuid-length=10
+                - --extra-create-metadata
+                - --v=5
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: registry.k8s.io/sig-storage/csi-provisioner:v6.0.0
+              imagePullPolicy: IfNotPresent
+              name: provisioner
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - args:
+                - --csi-address=$(ADDRESS)
+                - --v=5
+                - --leader-election-namespace=$(POD_NAMESPACE)
+                - --leader-election=false
+                - --feature-gates=CSIVolumeGroupSnapshot=true
+                - --extra-create-metadata=true
+                - --snapshot-name-prefix=ibox
+                - --snapshot-name-uuid-length=10
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: registry.k8s.io/sig-storage/csi-snapshotter:v8.4.0
+              imagePullPolicy: IfNotPresent
+              name: snapshotter
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - args:
+                - --v=5
+                - --csi-address=$(ADDRESS)
+                - --leader-election-namespace=$(POD_NAMESPACE)
+                - --leader-election=false
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: registry.k8s.io/sig-storage/csi-resizer:v2.0.0
+              imagePullPolicy: IfNotPresent
+              name: resizer
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - args:
+                - --v=5
+                - --csi-address=$(ADDRESS)
+                - --health-port=9808
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+              image: registry.k8s.io/sig-storage/livenessprobe:v2.15.0
+              imagePullPolicy: IfNotPresent
+              name: liveness-probe
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - args:
+                - --health-probe-bind-address=:8090
+                - --leader-elect=false
+                - --leader-elect-namespace=$(POD_NAMESPACE)
+              env:
+                - name: IBOXCG_CONTROLLER
+                  value: "true"
+                - name: APP_LOG_LEVEL
+                  value: info
+                - name: APP_LOG_FORMAT
+                  value: json
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: docker.io/infinidat/infinidat-csi-driver:v2.30.0
+              imagePullPolicy: Always
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /healthz
+                  port: healthz7
+                initialDelaySeconds: 10
+                periodSeconds: 2
+                timeoutSeconds: 3
+              name: iboxcg
+              ports:
+                - containerPort: 8090
+                  name: healthz7
+                  protocol: TCP
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+            - args:
+                - --leader-elect=false
+                - --leader-elect-namespace=$(POD_NAMESPACE)
+                - --health-probe-bind-address=:8088
+              env:
+                - name: IBOXPROMOTE_CONTROLLER
+                  value: "true"
+                - name: APP_LOG_LEVEL
+                  value: info
+                - name: APP_LOG_FORMAT
+                  value: json
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: docker.io/infinidat/infinidat-csi-driver:v2.30.0
+              imagePullPolicy: Always
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /healthz
+                  port: healthz2
+                initialDelaySeconds: 10
+                periodSeconds: 2
+                timeoutSeconds: 3
+              name: iboxpromote
+              ports:
+                - containerPort: 8088
+                  name: healthz2
+                  protocol: TCP
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+            - args:
+                - --health-probe-bind-address=:8081
+                - --leader-elect=false
+                - --leader-elect-namespace=$(POD_NAMESPACE)
+              env:
+                - name: IBOXREPLICA_CONTROLLER
+                  value: "true"
+                - name: APP_LOG_LEVEL
+                  value: info
+                - name: APP_LOG_FORMAT
+                  value: json
+                - name: PROTOCOL_SECRET
+                  value: null
+                - name: NODE_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.hostIP
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: docker.io/infinidat/infinidat-csi-driver:v2.30.0
+              imagePullPolicy: Always
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /healthz
+                  port: healthz1
+                initialDelaySeconds: 10
+                periodSeconds: 2
+                timeoutSeconds: 3
+              name: iboxreplica
+              ports:
+                - containerPort: 8081
+                  name: healthz1
+                  protocol: TCP
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+            - env:
+                - name: CSI_DRIVER_ROLE
+                  value: controller
+                - name: CSI_ENDPOINT
+                  value: unix:///var/run/csi/csi.sock
+                - name: CREATE_EVENTS
+                  value: ""
+                - name: PRIMARY_IBOX_CREDENTIAL
+                  value: infinibox-creds
+                - name: BURST_LIMIT
+                  value: "100"
+                - name: QPS_LIMIT
+                  value: "50"
+                - name: PROTOCOL_SECRET
+                  value: null
+                - name: APP_LOG_LEVEL
+                  value: info
+                - name: APP_LOG_FORMAT
+                  value: json
+                - name: IBOX_HOST_NAMING_CONVENTION
+                  value: null
+                - name: CSI_DRIVER_NAME
+                  value: infinibox-csi-driver
+                - name: KUBE_NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: NODE_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.hostIP
+                - name: POD_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.podIP
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: docker.io/infinidat/infinidat-csi-driver:v2.30.0
+              imagePullPolicy: Always
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /healthz
+                  port: healthz
+                initialDelaySeconds: 10
+                periodSeconds: 2
+                timeoutSeconds: 3
+              name: driver
+              ports:
+                - containerPort: 9808
+                  name: healthz
+                  protocol: TCP
+              resources:
+                limits:
+                  cpu: "0.5"
+                  memory: 450Mi
+                requests:
+                  cpu: "0.1"
+                  memory: 150Mi
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+          dnsPolicy: Default
+          imagePullSecrets: []
+          serviceAccount: t-controller
+          volumes:
+            - emptyDir: null
+              name: driver-path
+  4: |
+    apiVersion: v1
+    imagePullSecrets:
+      - name: null
+    kind: ServiceAccount
+    metadata:
+      name: t-controller
+      namespace: ibox
+  5: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-controller
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - list
+          - watch
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumes
+        verbs:
+          - get
+          - list
+          - watch
+          - create
+          - delete
+          - update
+          - patch
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+          - patch
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims/status
+        verbs:
+          - update
+          - patch
+      - apiGroups:
+          - ""
+        resources:
+          - pods
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - storageclasses
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+          - patch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments/status
+        verbs:
+          - patch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - csinodeinfos
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - csinodes
+        verbs:
+          - watch
+          - list
+          - get
+      - apiGroups:
+          - ""
+        resources:
+          - secrets
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshotclasses
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshotcontents
+        verbs:
+          - create
+          - get
+          - list
+          - watch
+          - update
+          - delete
+          - patch
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshotcontents/status
+        verbs:
+          - update
+          - create
+          - get
+          - list
+          - watch
+          - delete
+          - patch
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshots
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+          - create
+          - delete
+          - patch
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshots/status
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+          - create
+          - delete
+          - patch
+  6: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-controller
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  7: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-csiaddons-sidecar
+    rules:
+      - apiGroups:
+          - csiaddons.openshift.io
+        resources:
+          - csiaddonsnodes
+        verbs:
+          - update
+          - create
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - replication.storage.openshift.io
+        resources:
+          - volumegroupreplicationclasses
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - replication.storage.openshift.io
+        resources:
+          - volumegroupreplicationcontents
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - replication.storage.openshift.io
+        resources:
+          - volumegroupreplications
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - replication.storage.openshift.io
+        resources:
+          - volumereplicationclasses
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - replication.storage.openshift.io
+        resources:
+          - volumereplications
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+  8: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-csiddons-sidecar
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-csiaddons-sidecar
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  9: |
+    apiVersion: storage.k8s.io/v1
+    kind: CSIDriver
+    metadata:
+      name: infinibox-csi-driver
+    spec:
+      attachRequired: true
+      fsGroupPolicy: File
+      podInfoOnMount: true
+  10: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-iboxcg-controller
+    rules:
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxcgs
+        verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxcgs/finalizers
+        verbs:
+          - update
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxcgs/status
+        verbs:
+          - get
+          - patch
+          - update
+  11: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-iboxcg-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-iboxcg-controller
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  12: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-iboxpromote-controller
+    rules:
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxpromotes
+        verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxpromotes/finalizers
+        verbs:
+          - update
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxpromotes/status
+        verbs:
+          - get
+          - patch
+          - update
+  13: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-iboxpromote-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-iboxpromote-controller
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  14: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-iboxreplica-controller
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims
+        verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxreplicas
+        verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxreplicas/finalizers
+        verbs:
+          - update
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxreplicas/status
+        verbs:
+          - get
+          - patch
+          - update
+  15: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-iboxreplica-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-iboxreplica-controller
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  16: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-metrics-auth-role
+    rules:
+      - apiGroups:
+          - authentication.k8s.io
+        resources:
+          - tokenreviews
+        verbs:
+          - create
+      - apiGroups:
+          - authorization.k8s.io
+        resources:
+          - subjectaccessreviews
+        verbs:
+          - create
+  17: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-metrics-auth-rolebinding
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-metrics-auth-role
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  18: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      name: t-leader-election-role
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - configmaps
+        verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+          - delete
+      - apiGroups:
+          - coordination.k8s.io
+        resources:
+          - leases
+        verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+          - delete
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+  19: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: t-leader-election-rolebinding
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: t-leader-election-role
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  20: |
+    apiVersion: apps/v1
+    kind: DaemonSet
+    metadata:
+      name: t-node
+      namespace: ibox
+    spec:
+      selector:
+        matchLabels:
+          app: t-node
+      template:
+        metadata:
+          labels:
+            app: t-node
+        spec:
+          containers:
+            - args:
+                - --v=5
+                - --csi-address=$(ADDRESS)
+                - --health-port=9807
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+              image: registry.k8s.io/sig-storage/livenessprobe:v2.15.0
+              imagePullPolicy: IfNotPresent
+              name: liveness-probe
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - env:
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: CSI_DRIVER_ROLE
+                  value: node
+                - name: CSI_ENDPOINT
+                  value: unix:///var/lib/kubelet/plugins/infinibox.infinidat.com/csi.sock
+                - name: PRIMARY_IBOX_CREDENTIAL
+                  value: infinibox-creds
+                - name: APP_LOG_LEVEL
+                  value: info
+                - name: BURST_LIMIT
+                  value: "100"
+                - name: QPS_LIMIT
+                  value: "50"
+                - name: APP_LOG_FORMAT
+                  value: json
+                - name: PROTOCOL_SECRET
+                  value: ""
+                - name: CREATE_EVENTS
+                  value: ""
+                - name: IBOX_HOST_NAMING_CONVENTION
+                  value: ""
+                - name: CLEANUP_NFS_PERMS
+                  value: ""
+                - name: MULTIPATH_CLEANUP_DELAY
+                  value: ""
+                - name: MULTIPATH_WAIT
+                  value: ""
+                - name: MULTIPATH_FLUSH_RETRIES
+                  value: ""
+                - name: MULTIPATH_FLUSH_RETRY_DELAY_SECONDS
+                  value: ""
+                - name: FC_SEARCH_DISK_DELAY
+                  value: ""
+                - name: RESIZE2FS_DELAY
+                  value: ""
+                - name: CSI_DRIVER_NAME
+                  value: infinibox-csi-driver
+                - name: KUBE_NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: NODE_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.hostIP
+              image: docker.io/infinidat/infinidat-csi-driver:v2.30.0
+              imagePullPolicy: Always
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /healthz
+                  port: liveness-port
+                initialDelaySeconds: 10
+                periodSeconds: 2
+                timeoutSeconds: 3
+              name: driver
+              ports:
+                - containerPort: 9807
+                  name: liveness-port
+                  protocol: TCP
+              resources:
+                limits:
+                  cpu: "0.5"
+                  memory: 450Mi
+                requests:
+                  cpu: "0.1"
+                  memory: 150Mi
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+              volumeMounts:
+                - mountPath: /var/lib/kubelet/plugins/infinibox.infinidat.com
+                  name: driver-path
+                - mountPath: /host
+                  mountPropagation: Bidirectional
+                  name: host-dir
+            - args:
+                - --v=5
+                - --csi-address=$(ADDRESS)
+                - --kubelet-registration-path=/var/lib/kubelet/plugins/infinibox.infinidat.com/csi.sock
+              env:
+                - name: ADDRESS
+                  value: /csi/csi.sock
+                - name: KUBE_NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: NODE_IP_ADDRESS
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.podIP
+              image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.15.0
+              imagePullPolicy: IfNotPresent
+              name: registrar
+              volumeMounts:
+                - mountPath: /registration
+                  name: registration-dir
+                - mountPath: /csi
+                  name: driver-path
+          dnsPolicy: Default
+          hostNetwork: true
+          imagePullSecrets: []
+          serviceAccount: t-node
+          volumes:
+            - hostPath:
+                path: /var/lib/kubelet/plugins_registry/
+                type: DirectoryOrCreate
+              name: registration-dir
+            - hostPath:
+                path: /var/lib/kubelet/plugins/infinibox.infinidat.com
+                type: DirectoryOrCreate
+              name: driver-path
+            - hostPath:
+                path: /
+                type: Directory
+              name: host-dir
+  21: |
+    apiVersion: v1
+    imagePullSecrets:
+      - name: null
+    kind: ServiceAccount
+    metadata:
+      name: t-node
+      namespace: ibox
+  22: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-node
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumes
+        verbs:
+          - create
+          - delete
+          - get
+          - list
+          - watch
+          - update
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - ""
+        resources:
+          - secrets
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - ""
+        resources:
+          - nodes
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - storageclasses
+        verbs:
+          - get
+          - list
+          - watch
+  23: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-node
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-node
+    subjects:
+      - kind: ServiceAccount
+        name: t-node
+        namespace: ibox
+  24: |
+    apiVersion: v1
+    data:
+      iscsi.network_space: ZGVmYXVsdF9pc2NzaV9zcGFjZQ==
+      iscsi.useCHAP: bm9uZQ==
+      nfs.network_space: ZGVmYXVsdF9uYXNfc3BhY2U=
+      nvme.network_space: ZGVmYXVsdF9udm1lX3NwYWNl
+      storage_protocol: ZmM=
+    kind: Secret
+    metadata:
+      labels:
+        app: infinidat-csi-driver-protocol-secret
+      name: infinibox-protocol-secret
+      namespace: ibox
+    type: Opaque
+  25: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-external-provisioner-runner
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumes
+        verbs:
+          - get
+          - list
+          - watch
+          - create
+          - delete
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - storageclasses
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - list
+          - watch
+          - create
+          - update
+          - patch
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshots
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshotcontents
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - csinodes
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - ""
+        resources:
+          - nodes
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments
+        verbs:
+          - get
+          - list
+          - watch
+  26: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-csi-provisioner-role
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-external-provisioner-runner
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  27: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-external-resizer-runner
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumes
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattributeclasses
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - ""
+        resources:
+          - pods
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims/status
+        verbs:
+          - patch
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - list
+          - watch
+          - create
+          - update
+          - patch
+  28: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-csi-resizer-role
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-external-resizer-runner
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  29: |
+    apiVersion: v1
+    data:
+      hostname: aWJveDAwMDA=
+      node.session.auth.password: MC4wMDAwMDAwMDAwMDAw
+      node.session.auth.password_in: MC4wMDAwMDAwMDAwMDAx
+      node.session.auth.username: aXFuLjIwMjAtMDYuY29tLmNzaS1kcml2ZXItaXNjc2kuaW5maW5pZGF0OmNvbW1vbm91dA==
+      node.session.auth.username_in: aXFuLjIwMjAtMDYuY29tLmNzaS1kcml2ZXItaXNjc2kuaW5maW5pZGF0OmNvbW1vbmlu
+      password: c29tZWlib3hwYXNzd29yZA==
+      username: c29tZWlib3h1c2VybmFtZQ==
+    kind: Secret
+    metadata:
+      labels:
+        app: infinidat-csi-driver
+      name: infinibox-creds
+      namespace: ibox
+    type: Opaque
+  30: |
+    apiVersion: v1
+    data:
+      hostname: aWJveDAwMDA=
+      node.session.auth.password: MC4wMDAwMDAwMDAwMDAw
+      node.session.auth.password_in: MC4wMDAwMDAwMDAwMDAx
+      node.session.auth.username: aXFuLjIwMjAtMDYuY29tLmNzaS1kcml2ZXItaXNjc2kuaW5maW5pZGF0OmNvbW1vbm91dA==
+      node.session.auth.username_in: aXFuLjIwMjAtMDYuY29tLmNzaS1kcml2ZXItaXNjc2kuaW5maW5pZGF0OmNvbW1vbmlu
+      password: c29tZWlib3hwYXNzd29yZA==
+      username: c29tZWlib3h1c2VybmFtZQ==
+    kind: Secret
+    metadata:
+      labels:
+        app: infinidat-csi-driver
+      name: infinibox-creds2
+      namespace: ibox
+    type: Opaque
+  31: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-groupcontroller
+    rules:
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumegroupsnapshotclasses
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumegroupsnapshotclasses/status
+        verbs:
+          - create
+          - update
+          - delete
+          - patch
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumegroupsnapshotcontents
+        verbs:
+          - create
+          - get
+          - list
+          - watch
+          - update
+          - delete
+          - patch
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumegroupsnapshotcontents/status
+        verbs:
+          - create
+          - get
+          - list
+          - watch
+          - update
+          - delete
+          - patch
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumesnapshots
+        verbs:
+          - update
+          - create
+          - get
+          - list
+          - watch
+          - delete
+          - patch
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumesnapshots/status
+        verbs:
+          - update
+          - create
+          - get
+          - list
+          - watch
+          - delete
+          - patch
+  32: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-groupcontroller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-groupcontroller
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+empty label and scheduling values render the same as defaults (snapshot):
+  1: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-external-attacher-runner
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumes
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - csinodes
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments/status
+        verbs:
+          - patch
+  2: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-csi-attacher-role
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-external-attacher-runner
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  3: |
+    apiVersion: apps/v1
+    kind: StatefulSet
+    metadata:
+      name: t-driver
+      namespace: ibox
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: t-driver
+      serviceName: t-driver
+      template:
+        metadata:
+          labels:
+            app: t-driver
+        spec:
+          containers:
+            - args:
+                - --csi-address=$(ADDRESS)
+                - --leader-election-namespace=$(POD_NAMESPACE)
+                - --leader-election=false
+                - --v=5
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: registry.k8s.io/sig-storage/csi-attacher:v4.10.0
+              imagePullPolicy: IfNotPresent
+              name: attacher
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - args:
+                - --csi-address=$(ADDRESS)
+                - --leader-election-namespace=$(POD_NAMESPACE)
+                - --leader-election=false
+                - --volume-name-prefix=ibox
+                - --volume-name-uuid-length=10
+                - --extra-create-metadata
+                - --v=5
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: registry.k8s.io/sig-storage/csi-provisioner:v6.0.0
+              imagePullPolicy: IfNotPresent
+              name: provisioner
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - args:
+                - --csi-address=$(ADDRESS)
+                - --v=5
+                - --leader-election-namespace=$(POD_NAMESPACE)
+                - --leader-election=false
+                - --feature-gates=CSIVolumeGroupSnapshot=true
+                - --extra-create-metadata=true
+                - --snapshot-name-prefix=ibox
+                - --snapshot-name-uuid-length=10
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: registry.k8s.io/sig-storage/csi-snapshotter:v8.4.0
+              imagePullPolicy: IfNotPresent
+              name: snapshotter
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - args:
+                - --v=5
+                - --csi-address=$(ADDRESS)
+                - --leader-election-namespace=$(POD_NAMESPACE)
+                - --leader-election=false
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: registry.k8s.io/sig-storage/csi-resizer:v2.0.0
+              imagePullPolicy: IfNotPresent
+              name: resizer
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - args:
+                - --v=5
+                - --csi-address=$(ADDRESS)
+                - --health-port=9808
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+              image: registry.k8s.io/sig-storage/livenessprobe:v2.15.0
+              imagePullPolicy: IfNotPresent
+              name: liveness-probe
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - args:
+                - --health-probe-bind-address=:8090
+                - --leader-elect=false
+                - --leader-elect-namespace=$(POD_NAMESPACE)
+              env:
+                - name: IBOXCG_CONTROLLER
+                  value: "true"
+                - name: APP_LOG_LEVEL
+                  value: info
+                - name: APP_LOG_FORMAT
+                  value: json
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: docker.io/infinidat/infinidat-csi-driver:v2.30.0
+              imagePullPolicy: Always
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /healthz
+                  port: healthz7
+                initialDelaySeconds: 10
+                periodSeconds: 2
+                timeoutSeconds: 3
+              name: iboxcg
+              ports:
+                - containerPort: 8090
+                  name: healthz7
+                  protocol: TCP
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+            - args:
+                - --leader-elect=false
+                - --leader-elect-namespace=$(POD_NAMESPACE)
+                - --health-probe-bind-address=:8088
+              env:
+                - name: IBOXPROMOTE_CONTROLLER
+                  value: "true"
+                - name: APP_LOG_LEVEL
+                  value: info
+                - name: APP_LOG_FORMAT
+                  value: json
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: docker.io/infinidat/infinidat-csi-driver:v2.30.0
+              imagePullPolicy: Always
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /healthz
+                  port: healthz2
+                initialDelaySeconds: 10
+                periodSeconds: 2
+                timeoutSeconds: 3
+              name: iboxpromote
+              ports:
+                - containerPort: 8088
+                  name: healthz2
+                  protocol: TCP
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+            - args:
+                - --health-probe-bind-address=:8081
+                - --leader-elect=false
+                - --leader-elect-namespace=$(POD_NAMESPACE)
+              env:
+                - name: IBOXREPLICA_CONTROLLER
+                  value: "true"
+                - name: APP_LOG_LEVEL
+                  value: info
+                - name: APP_LOG_FORMAT
+                  value: json
+                - name: PROTOCOL_SECRET
+                  value: null
+                - name: NODE_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.hostIP
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: docker.io/infinidat/infinidat-csi-driver:v2.30.0
+              imagePullPolicy: Always
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /healthz
+                  port: healthz1
+                initialDelaySeconds: 10
+                periodSeconds: 2
+                timeoutSeconds: 3
+              name: iboxreplica
+              ports:
+                - containerPort: 8081
+                  name: healthz1
+                  protocol: TCP
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+            - env:
+                - name: CSI_DRIVER_ROLE
+                  value: controller
+                - name: CSI_ENDPOINT
+                  value: unix:///var/run/csi/csi.sock
+                - name: CREATE_EVENTS
+                  value: ""
+                - name: PRIMARY_IBOX_CREDENTIAL
+                  value: infinibox-creds
+                - name: BURST_LIMIT
+                  value: "100"
+                - name: QPS_LIMIT
+                  value: "50"
+                - name: PROTOCOL_SECRET
+                  value: null
+                - name: APP_LOG_LEVEL
+                  value: info
+                - name: APP_LOG_FORMAT
+                  value: json
+                - name: IBOX_HOST_NAMING_CONVENTION
+                  value: null
+                - name: CSI_DRIVER_NAME
+                  value: infinibox-csi-driver
+                - name: KUBE_NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: NODE_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.hostIP
+                - name: POD_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.podIP
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: docker.io/infinidat/infinidat-csi-driver:v2.30.0
+              imagePullPolicy: Always
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /healthz
+                  port: healthz
+                initialDelaySeconds: 10
+                periodSeconds: 2
+                timeoutSeconds: 3
+              name: driver
+              ports:
+                - containerPort: 9808
+                  name: healthz
+                  protocol: TCP
+              resources:
+                limits:
+                  cpu: "0.5"
+                  memory: 450Mi
+                requests:
+                  cpu: "0.1"
+                  memory: 150Mi
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+          dnsPolicy: Default
+          imagePullSecrets: []
+          serviceAccount: t-controller
+          volumes:
+            - emptyDir: null
+              name: driver-path
+  4: |
+    apiVersion: v1
+    imagePullSecrets:
+      - name: null
+    kind: ServiceAccount
+    metadata:
+      name: t-controller
+      namespace: ibox
+  5: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-controller
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - list
+          - watch
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumes
+        verbs:
+          - get
+          - list
+          - watch
+          - create
+          - delete
+          - update
+          - patch
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+          - patch
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims/status
+        verbs:
+          - update
+          - patch
+      - apiGroups:
+          - ""
+        resources:
+          - pods
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - storageclasses
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+          - patch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments/status
+        verbs:
+          - patch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - csinodeinfos
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - csinodes
+        verbs:
+          - watch
+          - list
+          - get
+      - apiGroups:
+          - ""
+        resources:
+          - secrets
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshotclasses
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshotcontents
+        verbs:
+          - create
+          - get
+          - list
+          - watch
+          - update
+          - delete
+          - patch
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshotcontents/status
+        verbs:
+          - update
+          - create
+          - get
+          - list
+          - watch
+          - delete
+          - patch
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshots
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+          - create
+          - delete
+          - patch
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshots/status
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+          - create
+          - delete
+          - patch
+  6: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-controller
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  7: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-csiaddons-sidecar
+    rules:
+      - apiGroups:
+          - csiaddons.openshift.io
+        resources:
+          - csiaddonsnodes
+        verbs:
+          - update
+          - create
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - replication.storage.openshift.io
+        resources:
+          - volumegroupreplicationclasses
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - replication.storage.openshift.io
+        resources:
+          - volumegroupreplicationcontents
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - replication.storage.openshift.io
+        resources:
+          - volumegroupreplications
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - replication.storage.openshift.io
+        resources:
+          - volumereplicationclasses
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - replication.storage.openshift.io
+        resources:
+          - volumereplications
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+  8: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-csiddons-sidecar
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-csiaddons-sidecar
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  9: |
+    apiVersion: storage.k8s.io/v1
+    kind: CSIDriver
+    metadata:
+      name: infinibox-csi-driver
+    spec:
+      attachRequired: true
+      fsGroupPolicy: File
+      podInfoOnMount: true
+  10: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-iboxcg-controller
+    rules:
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxcgs
+        verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxcgs/finalizers
+        verbs:
+          - update
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxcgs/status
+        verbs:
+          - get
+          - patch
+          - update
+  11: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-iboxcg-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-iboxcg-controller
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  12: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-iboxpromote-controller
+    rules:
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxpromotes
+        verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxpromotes/finalizers
+        verbs:
+          - update
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxpromotes/status
+        verbs:
+          - get
+          - patch
+          - update
+  13: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-iboxpromote-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-iboxpromote-controller
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  14: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-iboxreplica-controller
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims
+        verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxreplicas
+        verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxreplicas/finalizers
+        verbs:
+          - update
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxreplicas/status
+        verbs:
+          - get
+          - patch
+          - update
+  15: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-iboxreplica-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-iboxreplica-controller
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  16: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-metrics-auth-role
+    rules:
+      - apiGroups:
+          - authentication.k8s.io
+        resources:
+          - tokenreviews
+        verbs:
+          - create
+      - apiGroups:
+          - authorization.k8s.io
+        resources:
+          - subjectaccessreviews
+        verbs:
+          - create
+  17: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-metrics-auth-rolebinding
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-metrics-auth-role
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  18: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      name: t-leader-election-role
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - configmaps
+        verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+          - delete
+      - apiGroups:
+          - coordination.k8s.io
+        resources:
+          - leases
+        verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+          - delete
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+  19: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: t-leader-election-rolebinding
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: t-leader-election-role
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  20: |
+    apiVersion: apps/v1
+    kind: DaemonSet
+    metadata:
+      name: t-node
+      namespace: ibox
+    spec:
+      selector:
+        matchLabels:
+          app: t-node
+      template:
+        metadata:
+          labels:
+            app: t-node
+        spec:
+          containers:
+            - args:
+                - --v=5
+                - --csi-address=$(ADDRESS)
+                - --health-port=9807
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+              image: registry.k8s.io/sig-storage/livenessprobe:v2.15.0
+              imagePullPolicy: IfNotPresent
+              name: liveness-probe
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - env:
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: CSI_DRIVER_ROLE
+                  value: node
+                - name: CSI_ENDPOINT
+                  value: unix:///var/lib/kubelet/plugins/infinibox.infinidat.com/csi.sock
+                - name: PRIMARY_IBOX_CREDENTIAL
+                  value: infinibox-creds
+                - name: APP_LOG_LEVEL
+                  value: info
+                - name: BURST_LIMIT
+                  value: "100"
+                - name: QPS_LIMIT
+                  value: "50"
+                - name: APP_LOG_FORMAT
+                  value: json
+                - name: PROTOCOL_SECRET
+                  value: ""
+                - name: CREATE_EVENTS
+                  value: ""
+                - name: IBOX_HOST_NAMING_CONVENTION
+                  value: ""
+                - name: CLEANUP_NFS_PERMS
+                  value: ""
+                - name: MULTIPATH_CLEANUP_DELAY
+                  value: ""
+                - name: MULTIPATH_WAIT
+                  value: ""
+                - name: MULTIPATH_FLUSH_RETRIES
+                  value: ""
+                - name: MULTIPATH_FLUSH_RETRY_DELAY_SECONDS
+                  value: ""
+                - name: FC_SEARCH_DISK_DELAY
+                  value: ""
+                - name: RESIZE2FS_DELAY
+                  value: ""
+                - name: CSI_DRIVER_NAME
+                  value: infinibox-csi-driver
+                - name: KUBE_NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: NODE_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.hostIP
+              image: docker.io/infinidat/infinidat-csi-driver:v2.30.0
+              imagePullPolicy: Always
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /healthz
+                  port: liveness-port
+                initialDelaySeconds: 10
+                periodSeconds: 2
+                timeoutSeconds: 3
+              name: driver
+              ports:
+                - containerPort: 9807
+                  name: liveness-port
+                  protocol: TCP
+              resources:
+                limits:
+                  cpu: "0.5"
+                  memory: 450Mi
+                requests:
+                  cpu: "0.1"
+                  memory: 150Mi
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+              volumeMounts:
+                - mountPath: /var/lib/kubelet/plugins/infinibox.infinidat.com
+                  name: driver-path
+                - mountPath: /host
+                  mountPropagation: Bidirectional
+                  name: host-dir
+            - args:
+                - --v=5
+                - --csi-address=$(ADDRESS)
+                - --kubelet-registration-path=/var/lib/kubelet/plugins/infinibox.infinidat.com/csi.sock
+              env:
+                - name: ADDRESS
+                  value: /csi/csi.sock
+                - name: KUBE_NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: NODE_IP_ADDRESS
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.podIP
+              image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.15.0
+              imagePullPolicy: IfNotPresent
+              name: registrar
+              volumeMounts:
+                - mountPath: /registration
+                  name: registration-dir
+                - mountPath: /csi
+                  name: driver-path
+          dnsPolicy: Default
+          hostNetwork: true
+          imagePullSecrets: []
+          serviceAccount: t-node
+          volumes:
+            - hostPath:
+                path: /var/lib/kubelet/plugins_registry/
+                type: DirectoryOrCreate
+              name: registration-dir
+            - hostPath:
+                path: /var/lib/kubelet/plugins/infinibox.infinidat.com
+                type: DirectoryOrCreate
+              name: driver-path
+            - hostPath:
+                path: /
+                type: Directory
+              name: host-dir
+  21: |
+    apiVersion: v1
+    imagePullSecrets:
+      - name: null
+    kind: ServiceAccount
+    metadata:
+      name: t-node
+      namespace: ibox
+  22: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-node
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumes
+        verbs:
+          - create
+          - delete
+          - get
+          - list
+          - watch
+          - update
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - ""
+        resources:
+          - secrets
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - ""
+        resources:
+          - nodes
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - storageclasses
+        verbs:
+          - get
+          - list
+          - watch
+  23: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-node
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-node
+    subjects:
+      - kind: ServiceAccount
+        name: t-node
+        namespace: ibox
+  24: |
+    apiVersion: v1
+    data:
+      iscsi.network_space: ZGVmYXVsdF9pc2NzaV9zcGFjZQ==
+      iscsi.useCHAP: bm9uZQ==
+      nfs.network_space: ZGVmYXVsdF9uYXNfc3BhY2U=
+      nvme.network_space: ZGVmYXVsdF9udm1lX3NwYWNl
+      storage_protocol: ZmM=
+    kind: Secret
+    metadata:
+      labels:
+        app: infinidat-csi-driver-protocol-secret
+      name: infinibox-protocol-secret
+      namespace: ibox
+    type: Opaque
+  25: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-external-provisioner-runner
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumes
+        verbs:
+          - get
+          - list
+          - watch
+          - create
+          - delete
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - storageclasses
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - list
+          - watch
+          - create
+          - update
+          - patch
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshots
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshotcontents
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - csinodes
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - ""
+        resources:
+          - nodes
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments
+        verbs:
+          - get
+          - list
+          - watch
+  26: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-csi-provisioner-role
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-external-provisioner-runner
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  27: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-external-resizer-runner
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumes
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattributeclasses
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - ""
+        resources:
+          - pods
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims/status
+        verbs:
+          - patch
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - list
+          - watch
+          - create
+          - update
+          - patch
+  28: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-csi-resizer-role
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-external-resizer-runner
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  29: |
+    apiVersion: v1
+    data:
+      hostname: aWJveDAwMDA=
+      node.session.auth.password: MC4wMDAwMDAwMDAwMDAw
+      node.session.auth.password_in: MC4wMDAwMDAwMDAwMDAx
+      node.session.auth.username: aXFuLjIwMjAtMDYuY29tLmNzaS1kcml2ZXItaXNjc2kuaW5maW5pZGF0OmNvbW1vbm91dA==
+      node.session.auth.username_in: aXFuLjIwMjAtMDYuY29tLmNzaS1kcml2ZXItaXNjc2kuaW5maW5pZGF0OmNvbW1vbmlu
+      password: c29tZWlib3hwYXNzd29yZA==
+      username: c29tZWlib3h1c2VybmFtZQ==
+    kind: Secret
+    metadata:
+      labels:
+        app: infinidat-csi-driver
+      name: infinibox-creds
+      namespace: ibox
+    type: Opaque
+  30: |
+    apiVersion: v1
+    data:
+      hostname: aWJveDAwMDA=
+      node.session.auth.password: MC4wMDAwMDAwMDAwMDAw
+      node.session.auth.password_in: MC4wMDAwMDAwMDAwMDAx
+      node.session.auth.username: aXFuLjIwMjAtMDYuY29tLmNzaS1kcml2ZXItaXNjc2kuaW5maW5pZGF0OmNvbW1vbm91dA==
+      node.session.auth.username_in: aXFuLjIwMjAtMDYuY29tLmNzaS1kcml2ZXItaXNjc2kuaW5maW5pZGF0OmNvbW1vbmlu
+      password: c29tZWlib3hwYXNzd29yZA==
+      username: c29tZWlib3h1c2VybmFtZQ==
+    kind: Secret
+    metadata:
+      labels:
+        app: infinidat-csi-driver
+      name: infinibox-creds2
+      namespace: ibox
+    type: Opaque
+  31: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-groupcontroller
+    rules:
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumegroupsnapshotclasses
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumegroupsnapshotclasses/status
+        verbs:
+          - create
+          - update
+          - delete
+          - patch
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumegroupsnapshotcontents
+        verbs:
+          - create
+          - get
+          - list
+          - watch
+          - update
+          - delete
+          - patch
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumegroupsnapshotcontents/status
+        verbs:
+          - create
+          - get
+          - list
+          - watch
+          - update
+          - delete
+          - patch
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumesnapshots
+        verbs:
+          - update
+          - create
+          - get
+          - list
+          - watch
+          - delete
+          - patch
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumesnapshots/status
+        verbs:
+          - update
+          - create
+          - get
+          - list
+          - watch
+          - delete
+          - patch
+  32: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-groupcontroller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-groupcontroller
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+leaderElection + CSIAddons + e2etesting render unchanged (snapshot):
+  1: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-external-attacher-runner
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumes
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - csinodes
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments/status
+        verbs:
+          - patch
+  2: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-csi-attacher-role
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-external-attacher-runner
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  3: |
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: socat-service
+      namespace: null
+    spec:
+      ports:
+        - nodePort: 30007
+          port: 10000
+          protocol: TCP
+      selector:
+        app: t-driver
+      type: NodePort
+  4: |
+    apiVersion: apps/v1
+    kind: StatefulSet
+    metadata:
+      name: t-driver
+      namespace: ibox
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: t-driver
+      serviceName: t-driver
+      template:
+        metadata:
+          labels:
+            app: t-driver
+        spec:
+          affinity:
+            podAntiAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - podAffinityTerm:
+                    labelSelector:
+                      matchLabels:
+                        app: t-driver
+                    topologyKey: kubernetes.io/hostname
+                  weight: 100
+          containers:
+            - args:
+                - tcp-listen:10000,fork,reuseaddr
+                - unix-connect:/var/run/csi/csi.sock
+              image: alpine/socat:1.0.3
+              name: socat
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - args:
+                - --csi-addons-address=$(CSI_ADDONS_ENDPOINT)
+                - --namespace=$(POD_NAMESPACE)
+                - --pod=$(POD_NAME)
+                - --pod-uid=$(POD_UID)
+                - --node-id=$(NODE_ID)
+                - --controller-port=8080
+                - --enable-volume-condition=false
+              env:
+                - name: NODE_ID
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: POD_UID
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.uid
+                - name: POD_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.podIP
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: CSI_ADDONS_ENDPOINT
+                  value: unix:///csi/csi-addons.sock
+              image: quay.io/csiaddons/k8s-sidecar:v0.14.0
+              imagePullPolicy: IfNotPresent
+              name: csiaddons
+              volumeMounts:
+                - mountPath: /csi
+                  name: driver-path
+            - args:
+                - --csi-address=$(ADDRESS)
+                - --leader-election-namespace=$(POD_NAMESPACE)
+                - --leader-election=true
+                - --v=5
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: registry.k8s.io/sig-storage/csi-attacher:v4.10.0
+              imagePullPolicy: IfNotPresent
+              name: attacher
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - args:
+                - --csi-address=$(ADDRESS)
+                - --leader-election-namespace=$(POD_NAMESPACE)
+                - --leader-election=true
+                - --volume-name-prefix=ibox
+                - --volume-name-uuid-length=10
+                - --extra-create-metadata
+                - --v=5
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: registry.k8s.io/sig-storage/csi-provisioner:v6.0.0
+              imagePullPolicy: IfNotPresent
+              name: provisioner
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - args:
+                - --csi-address=$(ADDRESS)
+                - --v=5
+                - --leader-election-namespace=$(POD_NAMESPACE)
+                - --leader-election=true
+                - --feature-gates=CSIVolumeGroupSnapshot=true
+                - --extra-create-metadata=true
+                - --snapshot-name-prefix=ibox
+                - --snapshot-name-uuid-length=10
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: registry.k8s.io/sig-storage/csi-snapshotter:v8.4.0
+              imagePullPolicy: IfNotPresent
+              name: snapshotter
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - args:
+                - --v=5
+                - --csi-address=$(ADDRESS)
+                - --leader-election-namespace=$(POD_NAMESPACE)
+                - --leader-election=true
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: registry.k8s.io/sig-storage/csi-resizer:v2.0.0
+              imagePullPolicy: IfNotPresent
+              name: resizer
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - args:
+                - --v=5
+                - --csi-address=$(ADDRESS)
+                - --health-port=9808
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+              image: registry.k8s.io/sig-storage/livenessprobe:v2.15.0
+              imagePullPolicy: IfNotPresent
+              name: liveness-probe
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - args:
+                - --health-probe-bind-address=:8090
+                - --leader-elect=true
+                - --leader-elect-namespace=$(POD_NAMESPACE)
+              env:
+                - name: IBOXCG_CONTROLLER
+                  value: "true"
+                - name: APP_LOG_LEVEL
+                  value: info
+                - name: APP_LOG_FORMAT
+                  value: json
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: docker.io/infinidat/infinidat-csi-driver:v2.30.0
+              imagePullPolicy: Always
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /healthz
+                  port: healthz7
+                initialDelaySeconds: 10
+                periodSeconds: 2
+                timeoutSeconds: 3
+              name: iboxcg
+              ports:
+                - containerPort: 8090
+                  name: healthz7
+                  protocol: TCP
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+            - args:
+                - --leader-elect=true
+                - --leader-elect-namespace=$(POD_NAMESPACE)
+                - --health-probe-bind-address=:8088
+              env:
+                - name: IBOXPROMOTE_CONTROLLER
+                  value: "true"
+                - name: APP_LOG_LEVEL
+                  value: info
+                - name: APP_LOG_FORMAT
+                  value: json
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: docker.io/infinidat/infinidat-csi-driver:v2.30.0
+              imagePullPolicy: Always
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /healthz
+                  port: healthz2
+                initialDelaySeconds: 10
+                periodSeconds: 2
+                timeoutSeconds: 3
+              name: iboxpromote
+              ports:
+                - containerPort: 8088
+                  name: healthz2
+                  protocol: TCP
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+            - args:
+                - --health-probe-bind-address=:8081
+                - --leader-elect=true
+                - --leader-elect-namespace=$(POD_NAMESPACE)
+              env:
+                - name: IBOXREPLICA_CONTROLLER
+                  value: "true"
+                - name: APP_LOG_LEVEL
+                  value: info
+                - name: APP_LOG_FORMAT
+                  value: json
+                - name: PROTOCOL_SECRET
+                  value: null
+                - name: NODE_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.hostIP
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: docker.io/infinidat/infinidat-csi-driver:v2.30.0
+              imagePullPolicy: Always
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /healthz
+                  port: healthz1
+                initialDelaySeconds: 10
+                periodSeconds: 2
+                timeoutSeconds: 3
+              name: iboxreplica
+              ports:
+                - containerPort: 8081
+                  name: healthz1
+                  protocol: TCP
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+            - env:
+                - name: CSI_DRIVER_ROLE
+                  value: controller
+                - name: CSI_ADDONS_ENDPOINT
+                  value: unix:///var/run/csi/csi-addons.sock
+                - name: CSI_ENDPOINT
+                  value: unix:///var/run/csi/csi.sock
+                - name: CREATE_EVENTS
+                  value: ""
+                - name: PRIMARY_IBOX_CREDENTIAL
+                  value: infinibox-creds
+                - name: BURST_LIMIT
+                  value: "100"
+                - name: QPS_LIMIT
+                  value: "50"
+                - name: PROTOCOL_SECRET
+                  value: null
+                - name: APP_LOG_LEVEL
+                  value: info
+                - name: APP_LOG_FORMAT
+                  value: json
+                - name: IBOX_HOST_NAMING_CONVENTION
+                  value: null
+                - name: CSI_DRIVER_NAME
+                  value: infinibox-csi-driver
+                - name: KUBE_NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: NODE_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.hostIP
+                - name: POD_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.podIP
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              image: docker.io/infinidat/infinidat-csi-driver:v2.30.0
+              imagePullPolicy: Always
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /healthz
+                  port: healthz
+                initialDelaySeconds: 10
+                periodSeconds: 2
+                timeoutSeconds: 3
+              name: driver
+              ports:
+                - containerPort: 9808
+                  name: healthz
+                  protocol: TCP
+              resources:
+                limits:
+                  cpu: "0.5"
+                  memory: 450Mi
+                requests:
+                  cpu: "0.1"
+                  memory: 150Mi
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+          dnsPolicy: Default
+          imagePullSecrets: []
+          serviceAccount: t-controller
+          volumes:
+            - emptyDir: null
+              name: driver-path
+  5: |
+    apiVersion: v1
+    imagePullSecrets:
+      - name: null
+    kind: ServiceAccount
+    metadata:
+      name: t-controller
+      namespace: ibox
+  6: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-controller
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - list
+          - watch
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumes
+        verbs:
+          - get
+          - list
+          - watch
+          - create
+          - delete
+          - update
+          - patch
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+          - patch
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims/status
+        verbs:
+          - update
+          - patch
+      - apiGroups:
+          - ""
+        resources:
+          - pods
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - storageclasses
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+          - patch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments/status
+        verbs:
+          - patch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - csinodeinfos
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - csinodes
+        verbs:
+          - watch
+          - list
+          - get
+      - apiGroups:
+          - ""
+        resources:
+          - secrets
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshotclasses
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshotcontents
+        verbs:
+          - create
+          - get
+          - list
+          - watch
+          - update
+          - delete
+          - patch
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshotcontents/status
+        verbs:
+          - update
+          - create
+          - get
+          - list
+          - watch
+          - delete
+          - patch
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshots
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+          - create
+          - delete
+          - patch
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshots/status
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+          - create
+          - delete
+          - patch
+  7: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-controller
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  8: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-csiaddons-sidecar
+    rules:
+      - apiGroups:
+          - csiaddons.openshift.io
+        resources:
+          - csiaddonsnodes
+        verbs:
+          - update
+          - create
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - replication.storage.openshift.io
+        resources:
+          - volumegroupreplicationclasses
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - replication.storage.openshift.io
+        resources:
+          - volumegroupreplicationcontents
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - replication.storage.openshift.io
+        resources:
+          - volumegroupreplications
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - replication.storage.openshift.io
+        resources:
+          - volumereplicationclasses
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - replication.storage.openshift.io
+        resources:
+          - volumereplications
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+  9: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-csiddons-sidecar
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-csiaddons-sidecar
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  10: |
+    apiVersion: storage.k8s.io/v1
+    kind: CSIDriver
+    metadata:
+      name: infinibox-csi-driver
+    spec:
+      attachRequired: true
+      fsGroupPolicy: File
+      podInfoOnMount: true
+  11: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-iboxcg-controller
+    rules:
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxcgs
+        verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxcgs/finalizers
+        verbs:
+          - update
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxcgs/status
+        verbs:
+          - get
+          - patch
+          - update
+  12: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-iboxcg-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-iboxcg-controller
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  13: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-iboxpromote-controller
+    rules:
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxpromotes
+        verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxpromotes/finalizers
+        verbs:
+          - update
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxpromotes/status
+        verbs:
+          - get
+          - patch
+          - update
+  14: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-iboxpromote-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-iboxpromote-controller
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  15: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-iboxreplica-controller
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims
+        verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxreplicas
+        verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxreplicas/finalizers
+        verbs:
+          - update
+      - apiGroups:
+          - csidriver.infinidat.com
+        resources:
+          - iboxreplicas/status
+        verbs:
+          - get
+          - patch
+          - update
+  16: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-iboxreplica-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-iboxreplica-controller
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  17: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-metrics-auth-role
+    rules:
+      - apiGroups:
+          - authentication.k8s.io
+        resources:
+          - tokenreviews
+        verbs:
+          - create
+      - apiGroups:
+          - authorization.k8s.io
+        resources:
+          - subjectaccessreviews
+        verbs:
+          - create
+  18: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-metrics-auth-rolebinding
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-metrics-auth-role
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  19: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      name: t-leader-election-role
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - configmaps
+        verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+          - delete
+      - apiGroups:
+          - coordination.k8s.io
+        resources:
+          - leases
+        verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+          - delete
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - create
+          - patch
+  20: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: t-leader-election-rolebinding
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: t-leader-election-role
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  21: |
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: node-socat-service
+      namespace: null
+    spec:
+      ports:
+        - nodePort: 30008
+          port: 10001
+          protocol: TCP
+      selector:
+        app: t-node
+      type: NodePort
+  22: |
+    apiVersion: apps/v1
+    kind: DaemonSet
+    metadata:
+      name: t-node
+      namespace: ibox
+    spec:
+      selector:
+        matchLabels:
+          app: t-node
+      template:
+        metadata:
+          labels:
+            app: t-node
+        spec:
+          containers:
+            - args:
+                - tcp-listen:10001,fork,reuseaddr
+                - unix-connect:/var/run/csi/csi.sock
+              image: alpine/socat:1.0.3
+              name: socat
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - args:
+                - --v=5
+                - --csi-address=$(ADDRESS)
+                - --health-port=9807
+              env:
+                - name: ADDRESS
+                  value: /var/run/csi/csi.sock
+              image: registry.k8s.io/sig-storage/livenessprobe:v2.15.0
+              imagePullPolicy: IfNotPresent
+              name: liveness-probe
+              volumeMounts:
+                - mountPath: /var/run/csi
+                  name: driver-path
+            - env:
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: CSI_DRIVER_ROLE
+                  value: node
+                - name: CSI_ENDPOINT
+                  value: unix:///var/lib/kubelet/plugins/infinibox.infinidat.com/csi.sock
+                - name: PRIMARY_IBOX_CREDENTIAL
+                  value: infinibox-creds
+                - name: APP_LOG_LEVEL
+                  value: info
+                - name: BURST_LIMIT
+                  value: "100"
+                - name: QPS_LIMIT
+                  value: "50"
+                - name: APP_LOG_FORMAT
+                  value: json
+                - name: PROTOCOL_SECRET
+                  value: ""
+                - name: CREATE_EVENTS
+                  value: ""
+                - name: IBOX_HOST_NAMING_CONVENTION
+                  value: ""
+                - name: CLEANUP_NFS_PERMS
+                  value: ""
+                - name: MULTIPATH_CLEANUP_DELAY
+                  value: ""
+                - name: MULTIPATH_WAIT
+                  value: ""
+                - name: MULTIPATH_FLUSH_RETRIES
+                  value: ""
+                - name: MULTIPATH_FLUSH_RETRY_DELAY_SECONDS
+                  value: ""
+                - name: FC_SEARCH_DISK_DELAY
+                  value: ""
+                - name: RESIZE2FS_DELAY
+                  value: ""
+                - name: CSI_DRIVER_NAME
+                  value: infinibox-csi-driver
+                - name: KUBE_NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: NODE_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.hostIP
+              image: docker.io/infinidat/infinidat-csi-driver:v2.30.0
+              imagePullPolicy: Always
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /healthz
+                  port: liveness-port
+                initialDelaySeconds: 10
+                periodSeconds: 2
+                timeoutSeconds: 3
+              name: driver
+              ports:
+                - containerPort: 9807
+                  name: liveness-port
+                  protocol: TCP
+              resources:
+                limits:
+                  cpu: "0.5"
+                  memory: 450Mi
+                requests:
+                  cpu: "0.1"
+                  memory: 150Mi
+              securityContext:
+                allowPrivilegeEscalation: true
+                capabilities:
+                  add:
+                    - SYS_ADMIN
+                privileged: true
+              volumeMounts:
+                - mountPath: /var/lib/kubelet/plugins/infinibox.infinidat.com
+                  name: driver-path
+                - mountPath: /host
+                  mountPropagation: Bidirectional
+                  name: host-dir
+            - args:
+                - --v=5
+                - --csi-address=$(ADDRESS)
+                - --kubelet-registration-path=/var/lib/kubelet/plugins/infinibox.infinidat.com/csi.sock
+              env:
+                - name: ADDRESS
+                  value: /csi/csi.sock
+                - name: KUBE_NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: NODE_IP_ADDRESS
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.podIP
+              image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.15.0
+              imagePullPolicy: IfNotPresent
+              name: registrar
+              volumeMounts:
+                - mountPath: /registration
+                  name: registration-dir
+                - mountPath: /csi
+                  name: driver-path
+          dnsPolicy: Default
+          hostNetwork: true
+          imagePullSecrets: []
+          serviceAccount: t-node
+          volumes:
+            - hostPath:
+                path: /var/lib/kubelet/plugins_registry/
+                type: DirectoryOrCreate
+              name: registration-dir
+            - hostPath:
+                path: /var/lib/kubelet/plugins/infinibox.infinidat.com
+                type: DirectoryOrCreate
+              name: driver-path
+            - hostPath:
+                path: /
+                type: Directory
+              name: host-dir
+  23: |
+    apiVersion: v1
+    imagePullSecrets:
+      - name: null
+    kind: ServiceAccount
+    metadata:
+      name: t-node
+      namespace: ibox
+  24: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-node
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumes
+        verbs:
+          - create
+          - delete
+          - get
+          - list
+          - watch
+          - update
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - ""
+        resources:
+          - secrets
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - ""
+        resources:
+          - nodes
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - storageclasses
+        verbs:
+          - get
+          - list
+          - watch
+  25: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-node
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-node
+    subjects:
+      - kind: ServiceAccount
+        name: t-node
+        namespace: ibox
+  26: |
+    apiVersion: v1
+    data:
+      iscsi.network_space: ZGVmYXVsdF9pc2NzaV9zcGFjZQ==
+      iscsi.useCHAP: bm9uZQ==
+      nfs.network_space: ZGVmYXVsdF9uYXNfc3BhY2U=
+      nvme.network_space: ZGVmYXVsdF9udm1lX3NwYWNl
+      storage_protocol: ZmM=
+    kind: Secret
+    metadata:
+      labels:
+        app: infinidat-csi-driver-protocol-secret
+      name: infinibox-protocol-secret
+      namespace: ibox
+    type: Opaque
+  27: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-external-provisioner-runner
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumes
+        verbs:
+          - get
+          - list
+          - watch
+          - create
+          - delete
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims
+        verbs:
+          - get
+          - list
+          - watch
+          - update
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - storageclasses
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - list
+          - watch
+          - create
+          - update
+          - patch
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshots
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - snapshot.storage.k8s.io
+        resources:
+          - volumesnapshotcontents
+        verbs:
+          - get
+          - list
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - csinodes
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - ""
+        resources:
+          - nodes
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattachments
+        verbs:
+          - get
+          - list
+          - watch
+  28: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-csi-provisioner-role
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-external-provisioner-runner
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  29: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-external-resizer-runner
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumes
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - storage.k8s.io
+        resources:
+          - volumeattributeclasses
+        verbs:
+          - get
+          - list
+          - watch
+          - patch
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - ""
+        resources:
+          - pods
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - ""
+        resources:
+          - persistentvolumeclaims/status
+        verbs:
+          - patch
+      - apiGroups:
+          - ""
+        resources:
+          - events
+        verbs:
+          - list
+          - watch
+          - create
+          - update
+          - patch
+  30: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-csi-resizer-role
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-external-resizer-runner
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox
+  31: |
+    apiVersion: v1
+    data:
+      hostname: aWJveDAwMDA=
+      node.session.auth.password: MC4wMDAwMDAwMDAwMDAw
+      node.session.auth.password_in: MC4wMDAwMDAwMDAwMDAx
+      node.session.auth.username: aXFuLjIwMjAtMDYuY29tLmNzaS1kcml2ZXItaXNjc2kuaW5maW5pZGF0OmNvbW1vbm91dA==
+      node.session.auth.username_in: aXFuLjIwMjAtMDYuY29tLmNzaS1kcml2ZXItaXNjc2kuaW5maW5pZGF0OmNvbW1vbmlu
+      password: c29tZWlib3hwYXNzd29yZA==
+      username: c29tZWlib3h1c2VybmFtZQ==
+    kind: Secret
+    metadata:
+      labels:
+        app: infinidat-csi-driver
+      name: infinibox-creds
+      namespace: ibox
+    type: Opaque
+  32: |
+    apiVersion: v1
+    data:
+      hostname: aWJveDAwMDA=
+      node.session.auth.password: MC4wMDAwMDAwMDAwMDAw
+      node.session.auth.password_in: MC4wMDAwMDAwMDAwMDAx
+      node.session.auth.username: aXFuLjIwMjAtMDYuY29tLmNzaS1kcml2ZXItaXNjc2kuaW5maW5pZGF0OmNvbW1vbm91dA==
+      node.session.auth.username_in: aXFuLjIwMjAtMDYuY29tLmNzaS1kcml2ZXItaXNjc2kuaW5maW5pZGF0OmNvbW1vbmlu
+      password: c29tZWlib3hwYXNzd29yZA==
+      username: c29tZWlib3h1c2VybmFtZQ==
+    kind: Secret
+    metadata:
+      labels:
+        app: infinidat-csi-driver
+      name: infinibox-creds2
+      namespace: ibox
+    type: Opaque
+  33: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: t-groupcontroller
+    rules:
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumegroupsnapshotclasses
+        verbs:
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumegroupsnapshotclasses/status
+        verbs:
+          - create
+          - update
+          - delete
+          - patch
+          - get
+          - list
+          - watch
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumegroupsnapshotcontents
+        verbs:
+          - create
+          - get
+          - list
+          - watch
+          - update
+          - delete
+          - patch
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumegroupsnapshotcontents/status
+        verbs:
+          - create
+          - get
+          - list
+          - watch
+          - update
+          - delete
+          - patch
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumesnapshots
+        verbs:
+          - update
+          - create
+          - get
+          - list
+          - watch
+          - delete
+          - patch
+      - apiGroups:
+          - groupsnapshot.storage.k8s.io
+        resources:
+          - volumesnapshots/status
+        verbs:
+          - update
+          - create
+          - get
+          - list
+          - watch
+          - delete
+          - patch
+  34: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: t-groupcontroller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: t-groupcontroller
+    subjects:
+      - kind: ServiceAccount
+        name: t-controller
+        namespace: ibox

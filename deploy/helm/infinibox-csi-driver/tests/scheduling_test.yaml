@@ -129,3 +129,82 @@ tests:
           path: spec.template.spec.affinity.podAntiAffinity
       - exists:
           path: spec.template.spec.affinity.nodeAffinity
+
+  - it: controller nodeSelector keeps leaderElection podAntiAffinity
+    template: controllerserver.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    set:
+      leaderElection: "true"
+      controllerserver:
+        nodeSelector:
+          kubernetes.io/os: linux
+    asserts:
+      - exists:
+          path: spec.template.spec.affinity.podAntiAffinity
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            kubernetes.io/os: linux
+
+  - it: nodeserver scheduling values do not leak into controller pods
+    template: controllerserver.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    set:
+      nodeserver:
+        nodeSelector:
+          kubernetes.io/os: linux
+        affinity:
+          nodeAffinity: {}
+        tolerations:
+          - operator: Exists
+    asserts:
+      - notExists:
+          path: spec.template.spec.nodeSelector
+      - notExists:
+          path: spec.template.spec.affinity
+      - notExists:
+          path: spec.template.spec.tolerations
+
+  - it: controllerserver scheduling values do not leak into node pods
+    template: nodeserver.yaml
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    set:
+      controllerserver:
+        nodeSelector:
+          kubernetes.io/os: linux
+        affinity:
+          nodeAffinity: {}
+        tolerations:
+          - operator: Exists
+    asserts:
+      - notExists:
+          path: spec.template.spec.nodeSelector
+      - notExists:
+          path: spec.template.spec.affinity
+      - notExists:
+          path: spec.template.spec.tolerations
+
+  - it: supports podAntiAffinity on node pods
+    template: nodeserver.yaml
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    set:
+      nodeserver:
+        affinity:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    app: other
+                topologyKey: kubernetes.io/hostname
+    asserts:
+      - equal:
+          path: spec.template.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].topologyKey
+          value: kubernetes.io/hostname
