@@ -22,6 +22,10 @@ kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ .Release.Name }}-external-resizer-runner
+  {{- with $.Values.commonLabels }}
+  labels:
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
+  {{- end }}
 rules:
   # The following rule should be uncommented for plugins that require secrets
   # for provisioning.
@@ -52,6 +56,10 @@ kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ .Release.Name }}-csi-resizer-role
+  {{- with $.Values.commonLabels }}
+  labels:
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
+  {{- end }}
 subjects:
   - kind: ServiceAccount
     name: {{ .Release.Name }}-controller

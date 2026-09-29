@@ -4,6 +4,10 @@ kind: Service
 metadata:
   name: socat-service
   namespace: {{ .Release.NameSpace }}
+  {{- with $.Values.commonLabels }}
+  labels:
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
+  {{- end }}
 spec:
   selector:
     app: {{ .Release.Name }}-driver
@@ -19,6 +23,10 @@ apiVersion: apps/v1
 metadata:
   name: {{ .Release.Name }}-driver
   namespace: {{ .Release.Namespace }}
+  {{- with $.Values.commonLabels }}
+  labels:
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
+  {{- end }}
 spec:
   selector:
     matchLabels:
@@ -28,9 +36,16 @@ spec:
   template:
     metadata:
       labels:
-        app: {{ .Release.Name }}-driver
+        {{- include "infinibox-csi-driver.labels" (merge (dict "app" (printf "%s-driver" .Release.Name)) (.Values.controllerserver.podLabels | default dict) (.Values.commonLabels | default dict)) | nindent 8 }}
     spec:
-      {{- if eq .Values.leaderElection "true" }}
+      {{- with .Values.controllerserver.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.controllerserver.affinity }}
+      affinity:
+        {{- toYaml .Values.controllerserver.affinity | nindent 8 }}
+      {{- else if eq .Values.leaderElection "true" }}
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:

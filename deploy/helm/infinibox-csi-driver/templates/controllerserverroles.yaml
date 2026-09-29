@@ -9,11 +9,19 @@ imagePullSecrets:
 metadata:
   name: {{ .Release.Name }}-controller
   namespace: {{ .Release.Namespace }}
+  {{- with $.Values.commonLabels }}
+  labels:
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
+  {{- end }}
 ---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ .Release.Name }}-controller
+  {{- with $.Values.commonLabels }}
+  labels:
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
+  {{- end }}
 rules:
   - apiGroups: [""]
     resources: ["events"]
@@ -68,6 +76,10 @@ kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ .Release.Name }}-controller
+  {{- with $.Values.commonLabels }}
+  labels:
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
+  {{- end }}
 subjects:
   - kind: ServiceAccount
     name: {{ .Release.Name }}-controller

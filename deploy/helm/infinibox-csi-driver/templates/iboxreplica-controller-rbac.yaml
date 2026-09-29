@@ -3,6 +3,10 @@ kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ .Release.Name }}-iboxreplica-controller
+  {{- with $.Values.commonLabels }}
+  labels:
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
+  {{- end }}
 rules:
 - apiGroups:
   - ''
@@ -47,6 +51,10 @@ kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ .Release.Name }}-iboxreplica-controller
+  {{- with $.Values.commonLabels }}
+  labels:
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
+  {{- end }}
 subjects:
   - kind: ServiceAccount
     name: {{ .Release.Name }}-controller
@@ -60,6 +68,10 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: {{ .Release.Name }}-metrics-auth-role
+  {{- with $.Values.commonLabels }}
+  labels:
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
+  {{- end }}
 rules:
 - apiGroups:
   - authentication.k8s.io
@@ -78,6 +90,10 @@ kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ .Release.Name }}-metrics-auth-rolebinding
+  {{- with $.Values.commonLabels }}
+  labels:
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
+  {{- end }}
 subjects:
   - kind: ServiceAccount
     name: {{ .Release.Name }}-controller
@@ -91,6 +107,10 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: {{ .Release.Name }}-leader-election-role
+  {{- with $.Values.commonLabels }}
+  labels:
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
+  {{- end }}
 rules:
 - apiGroups:
   - ""
@@ -128,6 +148,10 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: {{ .Release.Name }}-leader-election-rolebinding
+  {{- with $.Values.commonLabels }}
+  labels:
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
+  {{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
