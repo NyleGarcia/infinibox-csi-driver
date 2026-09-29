@@ -104,7 +104,13 @@ Infinibox_Protocol_Secrets:
 # default it 5 seconds
 #resize2fsDelay: "5"
 
-# set cpu and memory limits and optionally tolerations for the CSI servers
+# labels added to every resource created by this chart, including pods
+commonLabels: {}
+#  team: storage
+#  env: prod
+
+# per CSI server: cpu/memory, extra pod labels, and scheduling
+# (nodeSelector, affinity, tolerations)
 nodeserver:
   resources:
     requests:
@@ -113,11 +119,24 @@ nodeserver:
     limits:
       cpu: "0.5"
       memory: "450Mi"
-# tolerations:
-# - key: "example-key"
-#   operator: "Equal"
-#   value: "true"
-#   effect: "PreferNoSchedule"
+  # extra labels for node pods (the chart's "app" label always wins)
+  podLabels: {}
+  nodeSelector: {}
+  # nodeserver is a DaemonSet; affinity limits which nodes run it
+  affinity: {}
+  # nodeAffinity:
+  #   requiredDuringSchedulingIgnoredDuringExecution:
+  #     nodeSelectorTerms:
+  #       - matchExpressions:
+  #           - key: "example.com/storage"
+  #             operator: "In"
+  #             values: ["true"]
+  # tolerations for pods, e.g. to run on tainted nodes
+  tolerations: []
+  # - key: "example-key"
+  #   operator: "Equal"
+  #   value: "true"
+  #   effect: "PreferNoSchedule"
 controllerserver:
   resources:
     requests:
@@ -126,11 +145,23 @@ controllerserver:
     limits:
       cpu: "0.5"
       memory: "450Mi"
-# tolerations:
-# - key: "example-key"
-#   operator: "Equal"
-#   value: "true"
-#   effect: "PreferNoSchedule"
+  # extra labels for controller pods (the chart's "app" label always wins)
+  podLabels: {}
+  nodeSelector: {}
+  # when set, replaces the default podAntiAffinity used with leaderElection
+  affinity: {}
+  # nodeAffinity:
+  #   requiredDuringSchedulingIgnoredDuringExecution:
+  #     nodeSelectorTerms:
+  #       - matchExpressions:
+  #           - key: "node-role.kubernetes.io/control-plane"
+  #             operator: "Exists"
+  # tolerations for pods, e.g. to run on tainted nodes
+  tolerations: []
+  # - key: "example-key"
+  #   operator: "Equal"
+  #   value: "true"
+  #   effect: "PreferNoSchedule"
 
 # Image paths
 images:

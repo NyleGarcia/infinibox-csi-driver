@@ -4,6 +4,10 @@ kind: Service
 metadata:
   name: node-socat-service
   namespace: {{ .Release.NameSpace }}
+  {{- with $.Values.commonLabels }}
+  labels:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   selector:
     app: {{ .Release.Name }}-node
@@ -19,6 +23,10 @@ apiVersion: apps/v1
 metadata:
   name: {{ .Release.Name }}-node
   namespace: {{ .Release.Namespace }}
+  {{- with $.Values.commonLabels }}
+  labels:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   selector:
     matchLabels:
@@ -26,8 +34,16 @@ spec:
   template:
     metadata:
       labels:
-        app: {{ .Release.Name }}-node
+        {{- toYaml (merge (dict "app" (printf "%s-node" .Release.Name)) (.Values.nodeserver.podLabels | default dict) (.Values.commonLabels | default dict)) | nindent 8 }}
     spec:
+      {{- with .Values.nodeserver.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeserver.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- if .Values.nodeserver.tolerations }}
       tolerations:
         {{- toYaml .Values.nodeserver.tolerations | nindent 8 }}
