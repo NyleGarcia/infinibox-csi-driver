@@ -5,7 +5,7 @@ metadata:
   name: {{ .Release.Name }}-iboxreplica-controller
   {{- with $.Values.commonLabels }}
   labels:
-    {{- toYaml . | nindent 4 }}
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
   {{- end }}
 rules:
 - apiGroups:
@@ -53,7 +53,7 @@ metadata:
   name: {{ .Release.Name }}-iboxreplica-controller
   {{- with $.Values.commonLabels }}
   labels:
-    {{- toYaml . | nindent 4 }}
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
   {{- end }}
 subjects:
   - kind: ServiceAccount
@@ -70,7 +70,7 @@ metadata:
   name: {{ .Release.Name }}-metrics-auth-role
   {{- with $.Values.commonLabels }}
   labels:
-    {{- toYaml . | nindent 4 }}
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
   {{- end }}
 rules:
 - apiGroups:
@@ -92,7 +92,7 @@ metadata:
   name: {{ .Release.Name }}-metrics-auth-rolebinding
   {{- with $.Values.commonLabels }}
   labels:
-    {{- toYaml . | nindent 4 }}
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
   {{- end }}
 subjects:
   - kind: ServiceAccount
@@ -109,7 +109,7 @@ metadata:
   name: {{ .Release.Name }}-leader-election-role
   {{- with $.Values.commonLabels }}
   labels:
-    {{- toYaml . | nindent 4 }}
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
   {{- end }}
 rules:
 - apiGroups:
@@ -150,7 +150,7 @@ metadata:
   name: {{ .Release.Name }}-leader-election-rolebinding
   {{- with $.Values.commonLabels }}
   labels:
-    {{- toYaml . | nindent 4 }}
+    {{- include "infinibox-csi-driver.labels" . | nindent 4 }}
   {{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
