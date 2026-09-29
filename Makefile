@@ -126,6 +126,12 @@ test-find-fails:  ## Find and summarize failing tests.
 	@$(_make) test | grep "    --- FAIL:"
 	@echo -e $(_finish)
 
+.PHONY: helm-test
+helm-test:  ## Unit test the CSI driver helm chart. Requires helm plugin: helm plugin install https://github.com/helm-unittest/helm-unittest.git
+	@echo -e $(_begin)
+	@helm unittest deploy/helm/infinibox-csi-driver
+	@echo -e $(_finish)
+
 .PHONY: lint
 lint: ## Lint source.
 	@echo -e $(_begin) 

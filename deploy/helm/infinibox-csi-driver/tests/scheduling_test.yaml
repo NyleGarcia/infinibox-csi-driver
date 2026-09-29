@@ -1,0 +1,131 @@
+suite: scheduling
+release:
+  name: t
+  namespace: ibox
+tests:
+  - it: renders no scheduling constraints on controller pods by default
+    template: controllerserver.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - notExists:
+          path: spec.template.spec.nodeSelector
+      - notExists:
+          path: spec.template.spec.affinity
+      - notExists:
+          path: spec.template.spec.tolerations
+
+  - it: renders no scheduling constraints on node pods by default
+    template: nodeserver.yaml
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    asserts:
+      - notExists:
+          path: spec.template.spec.nodeSelector
+      - notExists:
+          path: spec.template.spec.affinity
+      - notExists:
+          path: spec.template.spec.tolerations
+
+  - it: applies controller nodeSelector, affinity and tolerations
+    template: controllerserver.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    set:
+      controllerserver:
+        nodeSelector:
+          kubernetes.io/os: linux
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: node-role.kubernetes.io/control-plane
+                      operator: Exists
+        tolerations:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            kubernetes.io/os: linux
+      - equal:
+          path: spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].key
+          value: node-role.kubernetes.io/control-plane
+      - contains:
+          path: spec.template.spec.tolerations
+          content:
+            key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
+
+  - it: applies node nodeSelector, affinity and tolerations
+    template: nodeserver.yaml
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    set:
+      nodeserver:
+        nodeSelector:
+          kubernetes.io/os: linux
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: example.com/storage
+                      operator: In
+                      values: ["true"]
+        tolerations:
+          - operator: Exists
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            kubernetes.io/os: linux
+      - equal:
+          path: spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].key
+          value: example.com/storage
+      - equal:
+          path: spec.template.spec.tolerations
+          value:
+            - operator: Exists
+
+  - it: uses default podAntiAffinity with leaderElection
+    template: controllerserver.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    set:
+      leaderElection: "true"
+    asserts:
+      - equal:
+          path: spec.template.spec.affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].podAffinityTerm.labelSelector.matchLabels.app
+          value: t-driver
+
+  - it: user affinity replaces leaderElection podAntiAffinity
+    template: controllerserver.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    set:
+      leaderElection: "true"
+      controllerserver:
+        affinity:
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 1
+                preference:
+                  matchExpressions:
+                    - key: example.com/zone
+                      operator: Exists
+    asserts:
+      - notExists:
+          path: spec.template.spec.affinity.podAntiAffinity
+      - exists:
+          path: spec.template.spec.affinity.nodeAffinity

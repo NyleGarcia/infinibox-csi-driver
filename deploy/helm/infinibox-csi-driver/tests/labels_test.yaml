@@ -1,0 +1,131 @@
+suite: labels
+templates:
+  - attacher-rbac.yaml
+  - controllerserver.yaml
+  - controllerserverroles.yaml
+  - csiaddons-rbac.yaml
+  - driver.yaml
+  - iboxcg-controller-rbac.yaml
+  - iboxpromote-controller-rbac.yaml
+  - iboxreplica-controller-rbac.yaml
+  - nodeserver.yaml
+  - nodeserverroles.yaml
+  - protocol-secret.yaml
+  - provisioner-rbac.yaml
+  - resizer-rbac.yaml
+  - secret-infinibox.yaml
+  - volumegroup-rbac.yaml
+release:
+  name: t
+  namespace: ibox
+tests:
+  - it: adds commonLabels to every resource
+    set:
+      installCSIAddons: true
+      e2etesting: "true"
+      commonLabels:
+        team: storage
+        env: prod
+    asserts:
+      - isSubset:
+          path: metadata.labels
+          content:
+            team: storage
+            env: prod
+
+  - it: renders no labels on unlabeled resources by default
+    templates:
+      - attacher-rbac.yaml
+      - driver.yaml
+      - nodeserverroles.yaml
+    asserts:
+      - notExists:
+          path: metadata.labels
+
+  - it: keeps the chart app label on credential secrets
+    template: secret-infinibox.yaml
+    set:
+      commonLabels:
+        app: overridden
+        team: storage
+    asserts:
+      - equal:
+          path: metadata.labels
+          value:
+            app: infinidat-csi-driver
+            team: storage
+
+  - it: keeps the chart app label on protocol secrets
+    template: protocol-secret.yaml
+    set:
+      commonLabels:
+        app: overridden
+    asserts:
+      - equal:
+          path: metadata.labels.app
+          value: infinidat-csi-driver-protocol-secret
+
+  - it: merges podLabels and commonLabels into controller pods without touching the selector
+    template: controllerserver.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    set:
+      commonLabels:
+        app: overridden
+        team: storage
+      controllerserver:
+        podLabels:
+          app: overridden
+          tier: controller
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app: t-driver
+            team: storage
+            tier: controller
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app: t-driver
+
+  - it: merges podLabels and commonLabels into node pods without touching the selector
+    template: nodeserver.yaml
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    set:
+      commonLabels:
+        team: storage
+      nodeserver:
+        podLabels:
+          app: overridden
+          tier: node
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app: t-node
+            team: storage
+            tier: node
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app: t-node
+
+  - it: podLabels take precedence over commonLabels
+    template: nodeserver.yaml
+    documentSelector:
+      path: kind
+      value: DaemonSet
+    set:
+      commonLabels:
+        tier: common
+      nodeserver:
+        podLabels:
+          tier: node
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels.tier
+          value: node
